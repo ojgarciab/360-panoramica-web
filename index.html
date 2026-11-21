@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#101418">
+  <meta name="description" content="Fotos panorámicas 360° con la cámara y los sensores del móvil, sin conexión.">
+  <title>Panorámica 360</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <!-- Inicio -->
+  <main id="view-home" class="view active">
+    <header class="top">
+      <h1>Panorámica 360</h1>
+      <button id="btn-settings" class="icon-btn" aria-label="Ajustes">⚙</button>
+    </header>
+    <div id="demo-banner" class="banner" hidden>Modo demostración: cámara y sensores simulados. Arrastra o usa las flechas para girar.</div>
+    <div class="actions">
+      <button id="btn-new" class="primary big">Nueva captura 360°</button>
+      <button id="btn-calib" class="big">Calibrar cámara</button>
+    </div>
+    <p id="calib-status" class="muted"></p>
+    <h2>Mis panorámicas</h2>
+    <ul id="session-list" class="sessions"></ul>
+    <p id="empty-list" class="muted">Aún no hay capturas. Todo se guarda en este dispositivo.</p>
+    <footer class="muted">
+      <span id="storage-info"></span>
+      <span id="offline-info"></span>
+    </footer>
+  </main>
+
+  <!-- Captura -->
+  <section id="view-capture" class="view stage">
+    <video id="cap-video" playsinline muted autoplay></video>
+    <canvas id="cap-overlay"></canvas>
+    <div id="cap-flash" class="flash"></div>
+    <div class="hud top-hud">
+      <span id="cap-count" class="chip">0 fotos</span>
+      <span id="cap-cover" class="chip">0 % cubierto</span>
+    </div>
+    <canvas id="cap-globe" class="globe" width="264" height="264" title="Esfera de cobertura"></canvas>
+    <div id="cap-msg" class="msg"></div>
+    <div class="hud bottom-hud">
+      <button id="cap-exit">Salir</button>
+      <button id="cap-shutter" class="shutter" aria-label="Disparar"></button>
+      <button id="cap-finish" disabled>Terminar</button>
+    </div>
+    <div id="globe-full" class="globe-full" hidden>
+      <h2>Cobertura de la esfera</h2>
+      <div class="globes">
+        <figure><canvas id="globe-front" width="360" height="360"></canvas><figcaption>Delante</figcaption></figure>
+        <figure><canvas id="globe-back" width="360" height="360"></canvas><figcaption>Detrás</figcaption></figure>
+      </div>
+      <p class="legend"><i class="sw ok"></i> cubierto <i class="sw miss"></i> pendiente <i class="sw dot"></i> punto guía</p>
+      <p id="globe-full-info"></p>
+      <button id="globe-close" class="primary">Volver a la cámara</button>
+    </div>
+  </section>
+
+  <!-- Calibración -->
+  <section id="view-calib" class="view stage">
+    <video id="calib-video" playsinline muted autoplay></video>
+    <div class="hud top-hud column">
+      <span id="calib-cam" class="chip"></span>
+      <span id="calib-current" class="chip"></span>
+    </div>
+    <div id="calib-msg" class="msg"></div>
+    <div class="panel">
+      <div id="calib-progress" class="bar" hidden><i></i></div>
+      <div id="calib-result" hidden></div>
+      <div id="calib-manual" hidden>
+        <label>Campo de visión del lado largo: <b id="calib-fov-val"></b>
+          <input id="calib-fov" type="range" min="40" max="110" step="0.5">
+        </label>
+        <button id="calib-manual-save" class="primary">Guardar ajuste manual</button>
+      </div>
+      <div class="row">
+        <button id="calib-exit">Volver</button>
+        <button id="calib-manual-btn">Manual</button>
+        <button id="calib-delete">Borrar</button>
+        <button id="calib-start" class="primary">Calibrar</button>
+        <button id="calib-save" class="primary" hidden>Guardar</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Procesado -->
+  <section id="view-process" class="view center">
+    <h2>Generando panorámica</h2>
+    <div class="bar"><i id="proc-bar"></i></div>
+    <p id="proc-text" class="muted"></p>
+    <p class="muted small">El cosido se hace en tu dispositivo. No cierres la aplicación.</p>
+  </section>
+
+  <!-- Sesión -->
+  <section id="view-session" class="view">
+    <header class="top">
+      <button id="ses-back" class="icon-btn" aria-label="Volver">←</button>
+      <h1 id="ses-title"></h1>
+    </header>
+    <div class="viewer-wrap">
+      <canvas id="ses-viewer"></canvas>
+      <img id="ses-flat" alt="Panorámica equirectangular" hidden>
+      <p id="ses-nopano" class="muted" hidden>Esta captura aún no tiene panorámica generada.</p>
+    </div>
+    <p id="ses-info" class="muted"></p>
+    <div class="actions wrap">
+      <button id="ses-dl-pano" class="primary">Descargar panorámica</button>
+      <button id="ses-dl-parts">Descargar partes (ZIP)</button>
+      <button id="ses-toggle">Ver plana</button>
+      <button id="ses-rebuild">Volver a generar</button>
+      <button id="ses-delete" class="danger">Borrar</button>
+    </div>
+    <ul id="ses-parts" class="parts"></ul>
+  </section>
+
+  <!-- Ajustes -->
+  <dialog id="dlg-settings">
+    <form method="dialog">
+      <h2>Ajustes</h2>
+      <label>Resolución de la panorámica
+        <select id="set-width">
+          <option value="2048">2048 × 1024 (rápida)</option>
+          <option value="4096">4096 × 2048</option>
+          <option value="6144">6144 × 3072</option>
+          <option value="8192">8192 × 4096 (puede fallar en algunos móviles)</option>
+        </select>
+      </label>
+      <label>Solape entre fotos: <b id="set-overlap-val"></b>
+        <input id="set-overlap" type="range" min="20" max="50" step="5">
+      </label>
+      <label>Cámara
+        <select id="set-camera"><option value="">Trasera por defecto</option></select>
+      </label>
+      <label class="check"><input id="set-auto" type="checkbox"> Disparo automático al alinear</label>
+      <label class="check"><input id="set-refine" type="checkbox"> Alineación fina por imagen al coser</label>
+      <label class="check"><input id="set-lock" type="checkbox"> Bloquear exposición durante la captura</label>
+      <label class="check"><input id="set-gps" type="checkbox"> Guardar ubicación GPS en los metadatos</label>
+      <label class="check"><input id="set-keep" type="checkbox"> Conservar las fotos individuales tras coser</label>
+      <button class="primary" value="ok">Hecho</button>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+  <noscript>Esta aplicación necesita JavaScript.</noscript>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
