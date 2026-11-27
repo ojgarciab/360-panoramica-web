@@ -5,9 +5,10 @@ import { frameRowRange } from './stitch-core.js';
 import { grayDownsample } from './match.js';
 import { mul, rotZ, toHeadingPitchRoll, wrapPi, DEG } from './math3d.js';
 import { buildExif, buildXmp, tagJpegBlob } from './exif.js';
+import { VERSION } from './version.js';
 
 export const APP_NAME = 'Panorámica 360 Web';
-const SOFTWARE = 'Panoramica 360 Web 1.0';
+const SOFTWARE = `Panoramica 360 Web ${VERSION}`;
 
 async function decode(blob) {
   if (globalThis.createImageBitmap) {

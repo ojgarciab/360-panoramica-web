@@ -9,6 +9,7 @@ import { loadCalibrations } from './calibration.js';
 import { makeZip } from './zip.js';
 import { importExport } from './import.js';
 import * as db from './db.js';
+import { VERSION } from './version.js';
 
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = 'pano360.ajustes.v1';
@@ -302,6 +303,7 @@ async function init() {
       $('offline-info').textContent = 'Lista para usarse sin conexión.';
     }).catch(() => {});
   }
+  $('version-info').textContent = `Versión ${VERSION}`;
   if (!window.isSecureContext) toast('La cámara y los sensores sólo funcionan sobre HTTPS o localhost.', 8000);
   await showHome();
   window.__pano = app; // para depuración y pruebas automáticas
