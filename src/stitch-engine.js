@@ -19,11 +19,13 @@ export class StitchEngine {
     const res = analyze(frames, this.grays, options, this.onProgress);
     this.rotations = res.rotations;
     this.gains = res.gains;
+    // la focal puede haberse corregido con las propias fotos
+    this.frames = frames.map((f) => ({ ...f, K: { ...f.K, f: f.K.f * res.focalScale } }));
     this.grays = [];
     return { result: res };
   }
 
-  beginStrip({ W, H, y0, y1 }) { this.blender = new StripBlender(W, H, y0, y1); }
+  beginStrip({ W, H, y0, y1, twoBand }) { this.blender = new StripBlender(W, H, y0, y1, { twoBand: twoBand !== false }); }
 
   addFrame({ i, data }) {
     this.blender.addFrame(data, this.rotations[i], this.frames[i].K, this.gains[i]);

@@ -1,6 +1,6 @@
 // Pantalla de calibración de la cámara.
 import { DEG, angleBetween, defaultFocalRel } from './math3d.js';
-import { grayFromRGBA } from './match.js';
+import { grayDownsample } from './match.js';
 import {
   cameraKey, getCalibration, saveCalibration, deleteCalibration, calibrateFromSweep,
 } from './calibration.js';
@@ -98,9 +98,10 @@ export class CalibrationController {
     if (sensors.speed > MAX_SPEED) { if (last) this.setMsg('Más despacio…'); return; }
     // muestra: fotograma reducido en gris + orientación del sensor
     const R = sensors.R.slice();
-    const c = camera.grab(360);
+    const c = camera.grab(0);
     const img = c.getContext('2d').getImageData(0, 0, c.width, c.height);
-    this.samples.push({ R, gray: { data: grayFromRGBA(img.data, c.width, c.height), w: c.width, h: c.height } });
+    const k = 360 / Math.max(c.width, c.height);
+    this.samples.push({ R, gray: grayDownsample(img.data, c.width, c.height, Math.round(c.width * k), Math.round(c.height * k)) });
     navigator.vibrate?.(15);
     this.setProgress(0.5 * this.samples.length / SAMPLES);
     this.setMsg(`Muestra ${this.samples.length} de ${SAMPLES}. Sigue girando despacio…`);

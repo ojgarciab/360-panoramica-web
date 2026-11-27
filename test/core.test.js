@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import * as m from '../src/math3d.js';
 import { renderEquirect, renderView } from '../src/scene.js';
 import { grayFromRGBA } from '../src/match.js';
-import { analyze, StripBlender, frameRowRange } from '../src/stitch-core.js';
+import { analyze, StripBlender, frameRowRange, planPairs, blurRGBA } from '../src/stitch-core.js';
 import { generateTargets, Coverage } from '../src/targets.js';
 import { calibrateFromSweep } from '../src/calibration.js';
 import { buildExif, buildXmp, insertMetadata } from '../src/exif.js';
@@ -275,4 +275,50 @@ test('importación: validación de metadatos de foto', () => {
   assert.equal(validFrameMeta({ ...ok, f: 'x' }), null);
   assert.equal(validFrameMeta({ ...ok, idx: -1 }), null);
   assert.equal(validFrameMeta(null), null);
+});
+
+test('cosido: focal errónea sin calibrar y sensores imprecisos; sólo fotos contiguas', () => {
+  const K = m.intrinsics(360, 480, 420);
+  const fov = m.fovOf(K);
+  const targets = generateTargets(fov.h, fov.v, 0.3, 0);
+  const rand = rng(11);
+  const truth = targets.map((t) => m.fromHeadingPitchRoll(t.h, t.p, (rand() - 0.5) * 4 * D));
+  // sensores con 1,5° de ruido de rumbo y cámara con la focal mal supuesta (+10 %)
+  const sensed = truth.map((R) => m.mul(m.expSO3([(rand() - 0.5) * D, (rand() - 0.5) * D, (rand() - 0.5) * 3 * D]), R));
+  const grays = truth.map((R) => small(shoot(R, K), K, 2 / 3));
+  const wrong = { ...K, f: K.f * 1.1 };
+  const frames = sensed.map((R) => ({ R, K: wrong }));
+
+  const all = planPairs(frames), adj = planPairs(frames, { adjacentOnly: true });
+  assert.ok(adj.length < all.length && adj.length >= frames.length, `pares: ${adj.length} contiguos de ${all.length}`);
+  const used = new Set(adj.flat());
+  assert.equal(used.size, frames.length, 'todas las fotos tienen vecinas');
+
+  const res = analyze(frames, grays, { adjacentOnly: true, autoFocal: true });
+  close(res.focalScale * 1.1, 1, 0.015, 'focal corregida');
+  assert.ok(res.stats.medianAfterDeg < 0.08, JSON.stringify(res.stats));
+  const rel = (Rs, i, j) => m.mul(m.transpose(Rs[i]), Rs[j]);
+  let err = 0;
+  for (let i = 1; i < truth.length; i++) err = Math.max(err, m.angleBetween(rel(truth, 0, i), rel(res.rotations, 0, i)));
+  assert.ok(err < 0.4 * D, `error máximo ${err / D}°`);
+
+  // sin autocalibrar, la focal errónea no debe empeorar la orientación de los sensores
+  const plain = analyze(frames, grays, { adjacentOnly: true });
+  assert.equal(plain.focalScale, 1);
+});
+
+test('mezcla: el desenfoque conserva una imagen uniforme y ambas mezclas dan lo mismo sin solapes conflictivos', () => {
+  const w = 40, h = 30;
+  const flat = new Uint8ClampedArray(w * h * 4).fill(120);
+  assert.ok(blurRGBA(flat, w, h, 4).every((v, i) => i % 4 === 3 || v === 120));
+  const K = m.intrinsics(w, h, 30);
+  for (const twoBand of [true, false]) {
+    const b = new StripBlender(64, 32, 0, 32, { twoBand });
+    b.addFrame(flat, m.fromHeadingPitchRoll(0, 0, 0), K, 1);
+    b.addFrame(flat, m.fromHeadingPitchRoll(0.3, 0.1, 0), K, 1);
+    const out = b.finish().rgba;
+    let covered = 0;
+    for (let i = 0; i < out.length; i += 4) if (out[i] !== 16) { covered++; assert.ok(Math.abs(out[i] - 120) <= 1, `valor ${out[i]}`); }
+    assert.ok(covered > 50);
+  }
 });

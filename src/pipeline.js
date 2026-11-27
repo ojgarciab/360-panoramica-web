@@ -2,7 +2,7 @@
 // franjas en un Worker, y codifica el JPEG final con sus metadatos.
 import { createEngineClient } from './stitch-engine.js';
 import { frameRowRange } from './stitch-core.js';
-import { grayFromRGBA } from './match.js';
+import { grayDownsample } from './match.js';
 import { mul, rotZ, toHeadingPitchRoll, DEG } from './math3d.js';
 import { buildExif, buildXmp, tagJpegBlob } from './exif.js';
 
@@ -59,16 +59,26 @@ export async function buildPanorama(session, frames, settings, onProgress = () =
     for (let i = 0; i < n; i++) {
       const { w, h } = frames[i].meta;
       const s = 360 / Math.max(w, h);
-      const gw = Math.round(w * s), gh = Math.round(h * s);
-      const img = await pixels(frames[i].blob, gw, gh);
-      const data = grayFromRGBA(img.data, gw, gh);
-      await engine.call('gray', { i, data, w: gw, h: gh }, [data.buffer]);
+      const img = await pixels(frames[i].blob, w, h);
+      const g = grayDownsample(img.data, w, h, Math.round(w * s), Math.round(h * s));
+      await engine.call('gray', { i, data: g.data, w: g.w, h: g.h }, [g.data.buffer]);
       onProgress(0.1 * (i + 1) / n, phase);
     }
 
     // 2. Emparejado + ajuste de orientaciones + ganancias
     phase = 'Alineando con precisión…'; base = 0.1; span = 0.25;
-    const an = await engine.call('analyze', { frames: metas, options: { refine: settings.refine !== false } });
+    const an = await engine.call('analyze', {
+      frames: metas,
+      options: {
+        refine: settings.refine !== false,
+        adjacentOnly: settings.adjacentOnly !== false,
+        // tamaño del parche: el grueso (a media resolución) crece en proporción al fino
+        match: { patch: settings.matchPatch || 6, patchCoarse: Math.round((settings.matchPatch || 6) * 0.75) + 1 },
+        // sin calibración previa, la focal se estima con las propias fotos
+        autoFocal: !session.calibrated,
+      },
+    });
+    for (const m of metas) m.K.f *= an.focalScale;
 
     // 3. Mezcla por franjas
     phase = 'Componiendo la panorámica…';
@@ -77,7 +87,8 @@ export async function buildPanorama(session, frames, settings, onProgress = () =
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('El navegador no admite un lienzo de este tamaño. Elige una resolución menor.');
-    const rows = Math.max(64, Math.floor(4.2e6 / W));
+    const twoBand = settings.twoBand !== false;
+    const rows = Math.max(64, Math.floor((twoBand ? 2.1e6 : 4.2e6) / W));
     const ranges = an.rotations.map((R, i) => frameRowRange(R, metas[i].K, H));
     let empty = 0;
     const work = [];
@@ -88,7 +99,7 @@ export async function buildPanorama(session, frames, settings, onProgress = () =
     const totalWork = work.reduce((s, w) => s + w.idx.length, 0) || 1;
     let doneWork = 0;
     for (const { y0, y1, idx } of work) {
-      await engine.call('beginStrip', { W, H, y0, y1 });
+      await engine.call('beginStrip', { W, H, y0, y1, twoBand });
       for (const i of idx) {
         const img = await pixels(frames[i].blob, frames[i].meta.w, frames[i].meta.h);
         await engine.call('addFrame', { i, data: img.data }, [img.data.buffer]);

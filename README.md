@@ -12,7 +12,9 @@ No hay servidor, ni dependencias externas, ni paso de compilación.
 - **Calibración de la cámara** girando el móvil (asistida por sensores) o manual, guardada en local.
   Estudio de métodos en [docs/calibracion.md](docs/calibracion.md).
 - **Cosido en el dispositivo** (Web Worker): alineación fina por imagen que corrige la deriva de los
-  sensores, compensación de exposición y mezcla equirectangular de hasta 8192 × 4096.
+  sensores, compensación de exposición y mezcla equirectangular en dos bandas de hasta 8192 × 4096.
+  En Ajustes se puede limitar el emparejamiento a las fotos contiguas, elegir el tamaño de la zona
+  de emparejamiento y desactivar la mezcla en dos bandas.
 - **Guardado local** (IndexedDB) y **descarga** de la panorámica y, opcionalmente, de las fotos
   individuales en un ZIP con `metadatos.json`.
 - **Importación** de ese ZIP para recuperar una captura en otro dispositivo y volver a coserla.
@@ -56,7 +58,9 @@ npm run e2e        # extremo a extremo en Chromium con el modo demostración (re
   y eventos `deviceorientation` emulados). **Aún no se ha probado en móviles reales**: es donde hay
   que confirmar las convenciones de ejes de cada navegador y la precisión de los sensores.
 - Las fotos son fotogramas del vídeo (típicamente 1920 × 1440), no fotos a resolución completa del sensor.
-- La mezcla es por promediado ponderado: objetos cercanos o en movimiento pueden dejar fantasmas.
+- **Paralaje:** si la cámara se desplaza entre fotos (por ejemplo, al girar con el brazo extendido),
+  los objetos a 1–2 m no pueden encajar con los lejanos: quedarán cortados o desplazados en las
+  costuras. Hay que girar el móvil sobre sí mismo, manteniendo la cámara en el mismo punto.
 - En iOS el lienzo limita la panorámica a unos 16 Mpx (usa 4096 × 2048).
 - Al cambiar archivos hay que incrementar `VERSION` en `sw.js` para que los clientes se actualicen.
 

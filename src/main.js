@@ -13,7 +13,7 @@ import * as db from './db.js';
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = 'pano360.ajustes.v1';
 const DEFAULTS = {
-  panoWidth: 4096, overlap: 0.3, autoCapture: true, refine: true, lockExposure: true,
+  panoWidth: 4096, overlap: 0.3, autoCapture: true, refine: true, adjacentOnly: true, twoBand: true, matchPatch: 6, lockExposure: true,
   gps: false, keepParts: true, cameraId: '',
 };
 
@@ -160,7 +160,13 @@ async function showSession(id) {
   const info = [`${session.frameCount} fotos`];
   if (session.pano) info.push(`${session.pano.w}×${session.pano.h} px`, fmtBytes(session.pano.bytes));
   if (session.panoCoverage != null) info.push(`${Math.round(session.panoCoverage * 100)} % de la esfera`);
-  if (stats?.medianAfterDeg != null) info.push(`ajuste fino: ${stats.medianBeforeDeg.toFixed(2)}° → ${stats.medianAfterDeg.toFixed(2)}°`);
+  if (stats?.medianAfterDeg != null) {
+    info.push(`ajuste fino: ${stats.medianBeforeDeg.toFixed(2)}° → ${stats.medianAfterDeg.toFixed(2)}°`
+      + ` (${stats.matches} coincidencias en ${stats.pairs} pares)`);
+  }
+  if (stats?.focalScale && Math.abs(stats.focalScale - 1) >= 0.015) {
+    info.push(`focal corregida ${stats.focalScale > 1 ? '+' : ''}${((stats.focalScale - 1) * 100).toFixed(1)} %`);
+  }
   info.push(session.calibrated ? 'cámara calibrada' : 'cámara sin calibrar');
   $('ses-info').textContent = info.join(' · ');
 
@@ -212,8 +218,9 @@ async function openSettings() {
   const s = app.settings;
   $('set-width').value = String(s.panoWidth);
   $('set-overlap').value = String(Math.round(s.overlap * 100));
+  $('set-patch').value = String(s.matchPatch);
   $('set-overlap-val').textContent = `${Math.round(s.overlap * 100)} %`;
-  for (const [id, key] of [['set-auto', 'autoCapture'], ['set-refine', 'refine'], ['set-lock', 'lockExposure'], ['set-gps', 'gps'], ['set-keep', 'keepParts']]) {
+  for (const [id, key] of [['set-auto', 'autoCapture'], ['set-refine', 'refine'], ['set-adjacent', 'adjacentOnly'], ['set-twoband', 'twoBand'], ['set-lock', 'lockExposure'], ['set-gps', 'gps'], ['set-keep', 'keepParts']]) {
     $(id).checked = !!s[key];
   }
   const sel = $('set-camera');
@@ -227,7 +234,9 @@ function saveSettings() {
   const s = app.settings;
   s.panoWidth = +$('set-width').value;
   s.overlap = +$('set-overlap').value / 100;
+  s.matchPatch = +$('set-patch').value || 6;
   s.autoCapture = $('set-auto').checked; s.refine = $('set-refine').checked;
+  s.adjacentOnly = $('set-adjacent').checked; s.twoBand = $('set-twoband').checked;
   s.lockExposure = $('set-lock').checked; s.gps = $('set-gps').checked; s.keepParts = $('set-keep').checked;
   s.cameraId = $('set-camera').value;
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));

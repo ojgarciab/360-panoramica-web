@@ -125,18 +125,27 @@ real dependerá del giroscopio de cada móvil y de la escena.
 
 Aunque la focal esté bien calibrada, el rumbo de los sensores deriva. Al coser (`src/stitch-core.js`):
 
-- se emparejan todas las fotos solapadas con el mismo método de parches;
+- se emparejan las fotos que los sensores dicen que se solapan (opcionalmente sólo las contiguas),
+  con una búsqueda en dos escalas limitada a la zona de solape;
+- cada par se verifica: sus coincidencias deben ser coherentes con un único giro, y las que no lo
+  son se descartan;
+- si la cámara **no está calibrada**, la focal se estima con las propias fotos de la captura usando
+  el mismo método del apartado 3.1 (giros de los sensores) y se vuelve a emparejar;
 - un *bundle adjustment* sólo de rotaciones (Gauss–Newton con pesos de Huber) corrige cada
   orientación, con un término de confianza en el sensor fuerte en inclinación (la gravedad se mide
   bien) y débil en rumbo (donde deriva el giroscopio);
-- se compensa la exposición con una ganancia por foto (Brown y Lowe) y se mezcla con pesos que caen
-  hacia los bordes.
+- se compensa la exposición con una ganancia por foto y se mezcla en dos bandas (Brown y Lowe).
+
+Se probó también la autocalibración sin sensores (apartado 2.2) dentro del cosido y se descartó: con
+una captura real hecha a pulso estimaba una focal un 13 % menor que la correcta, porque el
+desplazamiento de la cámara (paralaje) con suelo cercano se confunde con un cambio de escala. La
+estimación apoyada en los sensores recuperó sobre esas mismas fotos la focal calibrada con un
+error inferior al 2 % partiendo de valores un 10 % erróneos.
 
 ## 5. Mejoras futuras
 
 - Estimar distorsión radial `k1` y punto principal junto con la focal (como hace Hugin), útil para
   ultra gran angulares.
-- Autocalibrar con las propias fotos de cada panorámica, refinando la focal en el ajuste global.
 - Estimar el retardo sensor–cámara para poder disparar en movimiento.
 - Calibración con ChArUco mediante OpenCV.js como opción de máxima precisión.
-- Mezcla multibanda y búsqueda de costuras para reducir fantasmas por paralaje.
+- Búsqueda de costuras y deformación local para disimular el paralaje de objetos cercanos.

@@ -67,7 +67,7 @@ export async function calibrateFromSweep(samples, fRelGuess = defaultFocalRel, o
     for (const [i, j] of pairs) {
       const M = mul(transpose(samples[j].R), samples[i].R);
       // radio de búsqueda amplio en la primera ronda: la focal inicial puede estar lejos
-      const r = matchPair(samples[i].gray, K, samples[j].gray, K, M, { search: round === 0 ? 16 : 8, grid: 9 });
+      const r = matchPair(samples[i].gray, K, samples[j].gray, K, M, { searchCoarse: round === 0 ? 12 : 6, grid: 9 });
       if (r.matches.length >= 6) data.push({ Ra: samples[i].R, Rb: samples[j].R, pts: r.matches });
       onProgress((round + ++k / pairs.length) / rounds);
       if (k % 4 === 0) await new Promise((res) => setTimeout(res, 0));

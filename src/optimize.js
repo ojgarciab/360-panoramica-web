@@ -204,3 +204,51 @@ export function solveGains(stats, n, opts = {}) {
   const g = Array.from(solveLinear(A, b, n));
   return g.map((v) => Math.max(0.5, Math.min(2, v)));
 }
+
+const unit = (K, x, y) => ray(K, x, y);
+
+/**
+ * Ajusta la rotación de un par (parte de M = R_bᵀ·R_a) a sus correspondencias y devuelve el
+ * residuo angular de cada una. Sirve para comprobar que las coincidencias de un par son
+ * coherentes con un único giro y descartar las falsas.
+ * @param as,bs rayos unitarios en la cámara A y en la cámara B
+ */
+export function fitPair(as, bs, M0, iters = 4) {
+  let M = M0;
+  const n = as.length;
+  const res = new Float64Array(n);
+  const P = new Float64Array(n * 3);
+  const evalRes = () => {
+    for (let k = 0; k < n; k++) {
+      const a = as[k], b = bs[k];
+      const px = M[0] * a[0] + M[1] * a[1] + M[2] * a[2];
+      const py = M[3] * a[0] + M[4] * a[1] + M[5] * a[2];
+      const pz = M[6] * a[0] + M[7] * a[1] + M[8] * a[2];
+      P[3 * k] = px; P[3 * k + 1] = py; P[3 * k + 2] = pz;
+      res[k] = Math.hypot(px - b[0], py - b[1], pz - b[2]);
+    }
+  };
+  evalRes();
+  for (let it = 0; it < iters; it++) {
+    const sorted = Array.from(res).sort((x, y) => x - y);
+    const thr = Math.max(1.5 * sorted[n >> 1], 1e-4);
+    const H = new Float64Array(9), g = new Float64Array(3);
+    for (let k = 0; k < n; k++) {
+      const wgt = res[k] <= thr ? 1 : thr / res[k];
+      const px = P[3 * k], py = P[3 * k + 1], pz = P[3 * k + 2], b = bs[k];
+      const r = [px - b[0], py - b[1], pz - b[2]];
+      const J = [0, pz, -py, -pz, 0, px, py, -px, 0];
+      for (let c = 0; c < 3; c++) {
+        g[c] -= wgt * (J[c] * r[0] + J[3 + c] * r[1] + J[6 + c] * r[2]);
+        for (let d = 0; d < 3; d++) H[c * 3 + d] += wgt * (J[c] * J[d] + J[3 + c] * J[3 + d] + J[6 + c] * J[6 + d]);
+      }
+    }
+    for (let c = 0; c < 3; c++) H[c * 4] += 1e-9;
+    const wv = solveLinear(H, g, 3);
+    M = orthonormalize(mul(expSO3([wv[0], wv[1], wv[2]]), M));
+    evalRes();
+  }
+  return { M, res };
+}
+
+export { ray as pixelRay };

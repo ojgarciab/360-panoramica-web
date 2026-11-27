@@ -140,6 +140,16 @@
       </label>
       <label class="check"><input id="set-auto" type="checkbox"> Disparo automático al alinear</label>
       <label class="check"><input id="set-refine" type="checkbox"> Alineación fina por imagen al coser</label>
+      <label class="check"><input id="set-adjacent" type="checkbox"> Emparejar sólo fotos contiguas</label>
+      <label>Zona de emparejamiento (tamaño del parche comparado)
+        <select id="set-patch">
+          <option value="4">Pequeña (9 px): más rápida</option>
+          <option value="6">Normal (13 px)</option>
+          <option value="9">Grande (19 px)</option>
+          <option value="12">Muy grande (25 px): más lenta</option>
+        </select>
+      </label>
+      <label class="check"><input id="set-twoband" type="checkbox"> Mezcla en dos bandas (evita imágenes dobles)</label>
       <label class="check"><input id="set-lock" type="checkbox"> Bloquear exposición durante la captura</label>
       <label class="check"><input id="set-gps" type="checkbox"> Guardar ubicación GPS en los metadatos</label>
       <label class="check"><input id="set-keep" type="checkbox"> Conservar las fotos individuales tras coser</label>
