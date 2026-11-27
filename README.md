@@ -7,6 +7,7 @@ No hay servidor, ni dependencias externas, ni paso de compilación.
 ## Funciones
 
 - **Captura guiada** con puntos guía sobre el vídeo y disparo automático al alinear y quedarse quieto.
+  Opcionalmente en ráfaga: 3 tomas separadas 0,2 s y se guarda la más nítida.
 - **Esfera de cobertura**: velo rojizo sobre las zonas sin fotografiar y una esfera (delante / detrás)
   que muestra en verde lo cubierto y en rojo lo pendiente.
 - **Calibración de la cámara** girando el móvil (asistida por sensores) o manual, guardada en local.

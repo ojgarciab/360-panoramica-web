@@ -38,6 +38,8 @@ try {
   await page.click('#calib-exit');
 
   // --- Captura ---
+  // con ráfaga activada: 3 tomas por punto y se guarda la más nítida
+  await page.evaluate(() => { window.__pano.settings.burst = true; });
   await page.click('#btn-new');
   await page.waitForFunction(() => window.__pano.capture.active);
   await page.click('#cap-shutter');
@@ -64,6 +66,13 @@ try {
   await d2.saveAs(join(out, 'partes.zip'));
   check(/^pano360_\d{8}_\d{6}\.jpg$/.test(d1.suggestedFilename()), `descarga ${d1.suggestedFilename()}`);
   check(d2.suggestedFilename().endsWith('_partes.zip'), `descarga ${d2.suggestedFilename()}`);
+
+  const burst = await page.evaluate(async () => {
+    const { getFrames } = await import('./src/db.js');
+    const fr = await getFrames(window.__pano.lastResult.id);
+    return fr.map((f) => f.meta.burst);
+  });
+  check(burst.every((b) => b && b.scores.length === 3 && b.scores[b.chosen] === Math.max(...b.scores)), 'ráfaga: se guardó la toma más nítida de cada punto');
 
   // --- Importación del ZIP exportado ---
   await page.click('#ses-back');

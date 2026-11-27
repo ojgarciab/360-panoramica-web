@@ -5,10 +5,12 @@ import { drawOverlay, drawGlobe } from './sphere-view.js';
 import { cameraKey, getCalibration, focalRelFor } from './calibration.js';
 import { frameMetadata } from './pipeline.js';
 import { tagJpegBlob } from './exif.js';
+import { sharpness } from './sharpness.js';
 import * as db from './db.js';
 
 const $ = (id) => document.getElementById(id);
 const ALIGN_TOL = 3 * DEG, ROLL_TOL = 10 * DEG, STEADY = 8, HOLD_MS = 400;
+const BURST_SHOTS = 3, BURST_MS = 200;
 
 export class CaptureController {
   constructor(app) {
@@ -127,19 +129,36 @@ export class CaptureController {
     const { camera, sensors, settings } = this.app;
     this.busy = true;
     try {
-      const R = sensors.R.slice(), raw = { ...sensors.raw };
-      const speed = sensors.speed;
-      const { blob, w, h } = await camera.grabJpeg(0.92);
+      // Ráfaga opcional: varias tomas seguidas y se guarda la más nítida, cada una con la
+      // lectura de sensores de su instante
+      const shots = settings.burst ? BURST_SHOTS : 1;
+      this.burstCanvases ??= [];
+      const takes = [];
+      for (let k = 0; k < shots; k++) {
+        if (k) await new Promise((res) => setTimeout(res, BURST_MS));
+        const canvas = camera.grab(0, this.burstCanvases[k] ??= document.createElement('canvas'));
+        const take = { canvas, R: sensors.R.slice(), raw: { ...sensors.raw }, speed: sensors.speed, motion: sensors.motion, time: Date.now() };
+        if (shots > 1) {
+          const img = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+          take.score = sharpness(img.data, canvas.width, canvas.height);
+        }
+        takes.push(take);
+      }
+      let chosen = 0;
+      takes.forEach((t, k) => { if (t.score > takes[chosen].score) chosen = k; });
+      const { R, raw, speed } = takes[chosen];
+      const { blob, w, h } = await camera.encode(takes[chosen].canvas, 0.92);
       const K = intrinsics(w, h, this.fRel * Math.max(w, h));
       const target = this.targets[targetIdx];
       const r3 = (v) => +v.toFixed(3);
       const meta = {
-        idx: this.count, time: Date.now(), w, h, f: K.f, focal35: focal35(K),
+        idx: this.count, time: takes[chosen].time, w, h, f: K.f, focal35: focal35(K),
         R, q: toQuaternion(R).map((v) => +v.toFixed(6)),
         alpha: r3(raw.alpha), beta: r3(raw.beta), gamma: r3(raw.gamma), screenAngle: raw.screenAngle,
         compassHeading: sensors.compassHeading(R) != null ? r3(sensors.compassHeading(R)) : null,
-        speed, motion: sensors.motion, gps: settings.gps ? this.gps : null,
+        speed, motion: takes[chosen].motion, gps: settings.gps ? this.gps : null,
         calibrated: this.calibrated, camera: camera.label,
+        burst: shots > 1 ? { chosen, scores: takes.map((t) => +t.score.toFixed(1)) } : null,
         target: target ? { h: r3(target.h / DEG), p: r3(target.p / DEG) } : null,
       };
       const tagged = await tagJpegBlob(blob, frameMetadata(meta));

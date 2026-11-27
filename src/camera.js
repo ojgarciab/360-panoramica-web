@@ -86,12 +86,16 @@ export class Camera {
     return canvas;
   }
 
-  /** Captura el fotograma actual como JPEG. */
-  async grabJpeg(quality = 0.92) {
-    const c = this.grab(0);
-    const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', quality));
+  /** Codifica un canvas como JPEG. */
+  async encode(canvas, quality = 0.92) {
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', quality));
     if (!blob) throw new Error('No se pudo codificar la foto');
-    return { blob, w: c.width, h: c.height };
+    return { blob, w: canvas.width, h: canvas.height };
+  }
+
+  /** Captura el fotograma actual como JPEG. */
+  grabJpeg(quality = 0.92) {
+    return this.encode(this.grab(0), quality);
   }
 
   stop() {

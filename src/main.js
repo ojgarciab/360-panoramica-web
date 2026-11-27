@@ -14,7 +14,7 @@ import { VERSION } from './version.js';
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = 'pano360.ajustes.v1';
 const DEFAULTS = {
-  panoWidth: 4096, overlap: 0.3, autoCapture: true, refine: true, adjacentOnly: true, twoBand: true, matchPatch: 6, lockExposure: true,
+  panoWidth: 4096, overlap: 0.3, autoCapture: true, refine: true, adjacentOnly: true, twoBand: true, matchPatch: 6, burst: false, lockExposure: true,
   gps: false, keepParts: true, cameraId: '',
 };
 
@@ -221,7 +221,7 @@ async function openSettings() {
   $('set-overlap').value = String(Math.round(s.overlap * 100));
   $('set-patch').value = String(s.matchPatch);
   $('set-overlap-val').textContent = `${Math.round(s.overlap * 100)} %`;
-  for (const [id, key] of [['set-auto', 'autoCapture'], ['set-refine', 'refine'], ['set-adjacent', 'adjacentOnly'], ['set-twoband', 'twoBand'], ['set-lock', 'lockExposure'], ['set-gps', 'gps'], ['set-keep', 'keepParts']]) {
+  for (const [id, key] of [['set-auto', 'autoCapture'], ['set-burst', 'burst'], ['set-refine', 'refine'], ['set-adjacent', 'adjacentOnly'], ['set-twoband', 'twoBand'], ['set-lock', 'lockExposure'], ['set-gps', 'gps'], ['set-keep', 'keepParts']]) {
     $(id).checked = !!s[key];
   }
   const sel = $('set-camera');
@@ -237,6 +237,7 @@ function saveSettings() {
   s.overlap = +$('set-overlap').value / 100;
   s.matchPatch = +$('set-patch').value || 6;
   s.autoCapture = $('set-auto').checked; s.refine = $('set-refine').checked;
+  s.burst = $('set-burst').checked;
   s.adjacentOnly = $('set-adjacent').checked; s.twoBand = $('set-twoband').checked;
   s.lockExposure = $('set-lock').checked; s.gps = $('set-gps').checked; s.keepParts = $('set-keep').checked;
   s.cameraId = $('set-camera').value;

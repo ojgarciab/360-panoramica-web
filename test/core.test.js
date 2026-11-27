@@ -14,6 +14,7 @@ import { calibrateFromSweep } from '../src/calibration.js';
 import { buildExif, buildXmp, insertMetadata } from '../src/exif.js';
 import { makeZip, crc32, readZip } from '../src/zip.js';
 import { validFrameMeta } from '../src/import.js';
+import { sharpness } from '../src/sharpness.js';
 
 const D = m.DEG;
 const close = (a, b, eps, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg ?? ''} ${a} vs ${b}`);
@@ -355,4 +356,19 @@ test('cosido: rumbo de sensores que se queda corto un 5 % por vuelta (caso real)
   // sin brújula no se puede recuperar: al menos no debe inventarse correcciones enormes dentro de un anillo
   const blind = analyze(frames, grays, { adjacentOnly: true });
   assert.equal(blind.stats.start, 0);
+});
+
+test('nitidez: una toma movida o desenfocada puntúa menos que la nítida', () => {
+  const K = m.intrinsics(240, 320, 300);
+  const sharp = shoot(m.fromHeadingPitchRoll(0.4, 0.1, 0), K);
+  const soft = blurRGBA(sharp, K.w, K.h, 1), softer = blurRGBA(sharp, K.w, K.h, 3);
+  // movimiento horizontal: media de la toma con copias desplazadas
+  const moved = new Uint8ClampedArray(sharp.length);
+  for (let i = 0; i < sharp.length; i++) moved[i] = (sharp[i] + sharp[Math.max(0, i - 8)] + sharp[Math.max(0, i - 16)] + sharp[Math.max(0, i - 24)]) / 4;
+  const s0 = sharpness(sharp, K.w, K.h), s1 = sharpness(soft, K.w, K.h), s2 = sharpness(softer, K.w, K.h), sm = sharpness(moved, K.w, K.h);
+  assert.ok(s0 > s1 * 1.5 && s1 > s2 * 1.5, `${s0} > ${s1} > ${s2}`);
+  assert.ok(s0 > sm * 1.5, `movida ${sm} frente a nítida ${s0}`);
+  // un cambio de exposición moderado no debe invertir el orden
+  const darker = sharp.map((v, i) => (i % 4 === 3 ? v : v * 0.85));
+  assert.ok(sharpness(darker, K.w, K.h) > s1);
 });

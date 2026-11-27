@@ -192,6 +192,7 @@ export function frameMetadata(meta) {
     velocidadAngular: +meta.speed.toFixed(2),
     aceleracion: meta.motion?.acc, aceleracionConGravedad: meta.motion?.accG, giroscopio: meta.motion?.rot,
     focalPx: +meta.f.toFixed(2), calibrada: meta.calibrated, camara: meta.camera,
+    rafaga: meta.burst ?? undefined,
     gps: meta.gps,
   };
   const exif = buildExif({
