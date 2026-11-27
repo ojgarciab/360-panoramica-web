@@ -1,6 +1,6 @@
 {
   "name": "360-panoramica-web",
-  "version": "1.0.0-beta2",
+  "version": "1.0.0-beta3",
   "description": "Aplicación web 100 % offline para tomar fotos panorámicas 360° con la cámara y los sensores del móvil",
   "type": "module",
   "private": true,

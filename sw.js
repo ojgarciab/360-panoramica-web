@@ -1,6 +1,6 @@
 // Service worker: guarda toda la aplicación en caché para funcionar 100 % sin conexión.
 // Al cambiar cualquier archivo hay que incrementar VERSION para que los clientes se actualicen.
-const VERSION = 'pano360-1.0.0-beta2-r2';
+const VERSION = 'pano360-1.0.0-beta3';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
