@@ -59,3 +59,51 @@ export function makeZip(files) {
   end.setUint32(12, cenSize, true); end.setUint32(16, offset, true);
   return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
 }
+
+/**
+ * Lee un ZIP desde un Blob/File sin cargarlo entero en memoria.
+ * Admite entradas sin comprimir y con Deflate (por si el ZIP se rehízo con otra herramienta).
+ * @returns [{name, size, blob(): Promise<Blob>}]
+ */
+export async function readZip(file) {
+  const view = async (start, end) => new DataView(await file.slice(start, end).arrayBuffer());
+  const tailStart = Math.max(0, file.size - 65557);
+  const tail = await view(tailStart, file.size);
+  let e = -1;
+  for (let i = tail.byteLength - 22; i >= 0; i--) {
+    if (tail.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  }
+  if (e < 0) throw new Error('El archivo no es un ZIP válido');
+  const count = tail.getUint16(e + 10, true);
+  const cenSize = tail.getUint32(e + 12, true), cenOff = tail.getUint32(e + 16, true);
+  if (count === 0xffff || cenOff === 0xffffffff) throw new Error('No se admiten archivos ZIP64');
+  const cen = await view(cenOff, cenOff + cenSize);
+  const dec = new TextDecoder();
+  const entries = [];
+  let p = 0;
+  for (let k = 0; k < count; k++) {
+    if (p + 46 > cen.byteLength || cen.getUint32(p, true) !== 0x02014b50) throw new Error('Directorio del ZIP dañado');
+    const flags = cen.getUint16(p + 8, true), method = cen.getUint16(p + 10, true);
+    const csize = cen.getUint32(p + 20, true), size = cen.getUint32(p + 24, true);
+    const nameLen = cen.getUint16(p + 28, true), extraLen = cen.getUint16(p + 30, true), commentLen = cen.getUint16(p + 32, true);
+    const offset = cen.getUint32(p + 42, true);
+    const name = dec.decode(new Uint8Array(cen.buffer, p + 46, nameLen));
+    p += 46 + nameLen + extraLen + commentLen;
+    if (name.endsWith('/')) continue;
+    entries.push({
+      name, size,
+      async blob(type = '') {
+        if (flags & 1) throw new Error('No se admiten ZIP cifrados');
+        const lh = await view(offset, offset + 30);
+        if (lh.getUint32(0, true) !== 0x04034b50) throw new Error(`Entrada dañada: ${name}`);
+        const start = offset + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+        const raw = file.slice(start, start + csize);
+        if (method === 0) return new Blob([raw], { type });
+        if (method !== 8 || !globalThis.DecompressionStream) throw new Error(`Compresión no admitida en ${name}`);
+        const out = await new Response(raw.stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+        return new Blob([out], { type });
+      },
+    });
+  }
+  return entries;
+}

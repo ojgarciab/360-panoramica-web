@@ -65,6 +65,22 @@ try {
   check(/^pano360_\d{8}_\d{6}\.jpg$/.test(d1.suggestedFilename()), `descarga ${d1.suggestedFilename()}`);
   check(d2.suggestedFilename().endsWith('_partes.zip'), `descarga ${d2.suggestedFilename()}`);
 
+  // --- Importación del ZIP exportado ---
+  await page.click('#ses-back');
+  await page.setInputFiles('#file-import', join(out, 'partes.zip'));
+  await page.waitForFunction(() => document.getElementById('view-session').classList.contains('active')
+    && document.getElementById('ses-title').textContent.includes('importada'), null, { timeout: 60000 });
+  const parts = await page.locator('#ses-parts li').count();
+  check(parts === 49 || parts > 8, `ZIP importado con ${parts} fotos`);
+  await page.evaluate(() => { window.__pano.lastResult = null; });
+  await page.click('#ses-rebuild');
+  await page.waitForFunction(() => window.__pano.lastResult, null, { timeout: 600000 });
+  const again = await page.evaluate(() => window.__pano.lastResult);
+  check(!again.error && again.coverage > 0.999 && again.stats.matches === result.stats.matches,
+    `panorámica regenerada desde el ZIP (${again.stats.matches} coincidencias, igual que la original)`);
+  await page.waitForSelector('#view-session.active');
+  await page.screenshot({ path: join(out, '7-importada.png') });
+
   // --- Persistencia y funcionamiento sin conexión ---
   await page.waitForFunction(() => navigator.serviceWorker.controller || navigator.serviceWorker.ready.then(() => true));
   await page.waitForTimeout(1000);
@@ -72,7 +88,7 @@ try {
   await page.goto(`http://localhost:${port}/`);
   await page.waitForFunction(() => window.__pano);
   const sessions = await page.locator('#session-list li').count();
-  check(sessions === 1, 'la captura persiste y la aplicación carga sin conexión');
+  check(sessions === 2, 'la captura persiste y la aplicación carga sin conexión');
   await page.screenshot({ path: join(out, '6-sin-conexion.png') });
   writeFileSync(join(out, 'errores.txt'), errors.join('\n'));
   check(errors.length === 0, `sin errores de consola (${errors.length})`);

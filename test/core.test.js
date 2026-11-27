@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, mkdtempSync } from 'node:fs';
+import { writeFileSync, mkdtempSync, mkdirSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,7 +12,8 @@ import { analyze, StripBlender, frameRowRange } from '../src/stitch-core.js';
 import { generateTargets, Coverage } from '../src/targets.js';
 import { calibrateFromSweep } from '../src/calibration.js';
 import { buildExif, buildXmp, insertMetadata } from '../src/exif.js';
-import { makeZip, crc32 } from '../src/zip.js';
+import { makeZip, crc32, readZip } from '../src/zip.js';
+import { validFrameMeta } from '../src/import.js';
 
 const D = m.DEG;
 const close = (a, b, eps, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg ?? ''} ${a} vs ${b}`);
@@ -241,4 +242,37 @@ test('ZIP: lo extrae la herramienta unzip del sistema', async () => {
   const listing = execFileSync('unzip', ['-t', path]).toString();
   assert.match(listing, /No errors detected/);
   assert.equal(execFileSync('unzip', ['-p', path, 'metadatos ñ.json']).toString(), '{"a":1}');
+});
+
+test('ZIP: lectura de lo exportado y de un ZIP comprimido con otra herramienta', async () => {
+  const big = new Uint8Array(50000).map((_, i) => (i * 7) % 251);
+  const files = [
+    { name: 'parte_001.jpg', data: big },
+    { name: 'metadatos.json', data: new TextEncoder().encode('{"fotos":[]}') },
+  ];
+  const own = await readZip(makeZip(files));
+  assert.deepEqual(own.map((e) => e.name), ['parte_001.jpg', 'metadatos.json']);
+  assert.deepEqual(new Uint8Array(await (await own[0].blob()).arrayBuffer()), big);
+  assert.equal(await (await own[1].blob()).text(), '{"fotos":[]}');
+
+  // rehecho con `zip` del sistema: Deflate y dentro de una carpeta
+  const dir = mkdtempSync(join(tmpdir(), 'zipr-'));
+  mkdirSync(join(dir, 'carpeta'));
+  writeFileSync(join(dir, 'carpeta', 'parte_001.jpg'), big);
+  writeFileSync(join(dir, 'carpeta', 'metadatos.json'), '{"fotos":[]}');
+  execFileSync('zip', ['-q', '-r', 'otro.zip', 'carpeta'], { cwd: dir });
+  const other = await readZip(new Blob([readFileSync(join(dir, 'otro.zip'))]));
+  const part = other.find((e) => e.name === 'carpeta/parte_001.jpg');
+  assert.deepEqual(new Uint8Array(await (await part.blob()).arrayBuffer()), big);
+
+  await assert.rejects(readZip(new Blob([big])), /ZIP válido/);
+});
+
+test('importación: validación de metadatos de foto', () => {
+  const ok = { idx: 0, R: [1, 0, 0, 0, 1, 0, 0, 0, 1], w: 540, h: 720, f: 576, time: 5 };
+  assert.equal(validFrameMeta(ok).speed, 0);
+  assert.equal(validFrameMeta({ ...ok, R: [1, 2] }), null);
+  assert.equal(validFrameMeta({ ...ok, f: 'x' }), null);
+  assert.equal(validFrameMeta({ ...ok, idx: -1 }), null);
+  assert.equal(validFrameMeta(null), null);
 });

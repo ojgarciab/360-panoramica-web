@@ -15,6 +15,7 @@ No hay servidor, ni dependencias externas, ni paso de compilación.
   sensores, compensación de exposición y mezcla equirectangular de hasta 8192 × 4096.
 - **Guardado local** (IndexedDB) y **descarga** de la panorámica y, opcionalmente, de las fotos
   individuales en un ZIP con `metadatos.json`.
+- **Importación** de ese ZIP para recuperar una captura en otro dispositivo y volver a coserla.
 - **Metadatos**: EXIF (fecha, focal equivalente, rumbo y GPS opcional, lecturas de sensores en
   `UserComment`) y XMP (`GPano` para que los visores reconozcan la panorámica; pose de cada foto).
 - **Visor 360°** integrado y **PWA instalable** que funciona sin conexión.

@@ -7,6 +7,7 @@ import { buildPanorama } from './pipeline.js';
 import { PanoViewer } from './viewer.js';
 import { loadCalibrations } from './calibration.js';
 import { makeZip } from './zip.js';
+import { importExport } from './import.js';
 import * as db from './db.js';
 
 const $ = (id) => document.getElementById(id);
@@ -253,6 +254,20 @@ async function init() {
 
   $('btn-new').onclick = () => openStage(capture, 'capture');
   $('btn-calib').onclick = () => openStage(calib, 'calib');
+  $('btn-import').onclick = () => $('file-import').click();
+  $('file-import').onchange = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    toast('Importando…', 60000);
+    try {
+      const r = await importExport(file);
+      toast(`Importadas ${r.count} fotos${r.missing ? ` (${r.missing} omitidas por faltar o estar dañadas)` : ''}. Pulsa «Generar panorámica».`, 6000);
+      showSession(r.id);
+    } catch (err) {
+      toast(`No se pudo importar: ${err.message}`, 8000);
+    }
+  };
   $('btn-settings').onclick = openSettings;
   $('dlg-settings').addEventListener('close', saveSettings);
   $('set-overlap').oninput = () => { $('set-overlap-val').textContent = `${$('set-overlap').value} %`; };
