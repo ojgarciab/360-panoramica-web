@@ -122,7 +122,11 @@ export function refineRotations(frames, matches, opts = {}) {
     if (corrections[i] > maxCorr) { R[i] = frames[i].R.slice(); corrections[i] = 0; reverted++; }
   }
   if (reverted) res = residuals();
+  // coste robusto (residuo truncado a tau) para comparar ajustes con distintas focales
+  const tau = opts.tau ?? 0.6 * Math.PI / 180;
+  const cost = res.reduce((s, r) => s + Math.min(r.e * r.e, tau * tau), 0) / (res.length * tau * tau);
   return {
+    cost,
     rotations: R, rmsBefore, rmsAfter: rms(res), medianBefore: medBefore,
     medianAfter: median(res.map((r) => r.e)), corrections, reverted,
   };

@@ -3,7 +3,7 @@
 import { createEngineClient } from './stitch-engine.js';
 import { frameRowRange } from './stitch-core.js';
 import { grayDownsample } from './match.js';
-import { mul, rotZ, toHeadingPitchRoll, DEG } from './math3d.js';
+import { mul, rotZ, toHeadingPitchRoll, wrapPi, DEG } from './math3d.js';
 import { buildExif, buildXmp, tagJpegBlob } from './exif.js';
 
 export const APP_NAME = 'Panorámica 360 Web';
@@ -30,6 +30,34 @@ async function pixels(blob, w, h) {
   ctx.drawImage(bmp, 0, 0, w, h);
   bmp.close?.();
   return ctx.getImageData(0, 0, w, h);
+}
+
+/**
+ * Orientaciones con el rumbo corregido por la brújula. El rumbo relativo (giroscopio) es suave
+ * pero en algunos móviles acumula un error de 15–20° por vuelta; la brújula es ruidosa pero no
+ * deriva. Se toma del sensor relativo el detalle y de la brújula la tendencia, suavizando su
+ * diferencia a lo largo del orden de captura. Devuelve null si no hay brújula o no aporta nada.
+ */
+export function compassCorrected(metas) {
+  const diff = metas.map((mt) => {
+    const hp = toHeadingPitchRoll(mt.R);
+    // cerca del cénit y del nadir el rumbo no está definido
+    return mt.compassHeading == null || Math.abs(hp.p) > 65 * DEG ? null : wrapPi(mt.compassHeading * DEG - hp.h);
+  });
+  const first = diff.findIndex((d) => d != null);
+  if (first < 0 || diff.filter((d) => d != null).length < 4) return null;
+  const un = [];
+  let prev = diff[first];
+  for (let i = 0; i < diff.length; i++) {
+    if (diff[i] != null) prev += wrapPi(diff[i] - prev);
+    un.push(prev);
+  }
+  const smooth = un.map((_, i) => {
+    const win = un.slice(Math.max(0, i - 4), i + 5);
+    return win.reduce((a, b) => a + b, 0) / win.length;
+  });
+  if (Math.max(...smooth) - Math.min(...smooth) < 4 * DEG) return null;
+  return metas.map((mt, i) => mul(rotZ(-(smooth[i] - smooth[0])), mt.R));
 }
 
 export const canvasBlob = (canvas, type, q) => new Promise((res) => canvas.toBlob(res, type, q));
@@ -65,7 +93,8 @@ export async function buildPanorama(session, frames, settings, onProgress = () =
       onProgress(0.1 * (i + 1) / n, phase);
     }
 
-    // 2. Emparejado + ajuste de orientaciones + ganancias
+    // 2. Emparejado + ajuste de orientaciones y focal + ganancias
+    const byCompass = compassCorrected(frames.map((f) => f.meta));
     phase = 'Alineando con precisión…'; base = 0.1; span = 0.25;
     const an = await engine.call('analyze', {
       frames: metas,
@@ -74,8 +103,7 @@ export async function buildPanorama(session, frames, settings, onProgress = () =
         adjacentOnly: settings.adjacentOnly !== false,
         // tamaño del parche: el grueso (a media resolución) crece en proporción al fino
         match: { patch: settings.matchPatch || 6, patchCoarse: Math.round((settings.matchPatch || 6) * 0.75) + 1 },
-        // sin calibración previa, la focal se estima con las propias fotos
-        autoFocal: !session.calibrated,
+        alternatives: byCompass ? [byCompass.map((R) => mul(align, R))] : [],
       },
     });
     for (const m of metas) m.K.f *= an.focalScale;

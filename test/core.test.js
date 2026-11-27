@@ -294,7 +294,7 @@ test('cosido: focal errónea sin calibrar y sensores imprecisos; sólo fotos con
   const used = new Set(adj.flat());
   assert.equal(used.size, frames.length, 'todas las fotos tienen vecinas');
 
-  const res = analyze(frames, grays, { adjacentOnly: true, autoFocal: true });
+  const res = analyze(frames, grays, { adjacentOnly: true });
   close(res.focalScale * 1.1, 1, 0.015, 'focal corregida');
   assert.ok(res.stats.medianAfterDeg < 0.08, JSON.stringify(res.stats));
   const rel = (Rs, i, j) => m.mul(m.transpose(Rs[i]), Rs[j]);
@@ -303,7 +303,7 @@ test('cosido: focal errónea sin calibrar y sensores imprecisos; sólo fotos con
   assert.ok(err < 0.4 * D, `error máximo ${err / D}°`);
 
   // sin autocalibrar, la focal errónea no debe empeorar la orientación de los sensores
-  const plain = analyze(frames, grays, { adjacentOnly: true });
+  const plain = analyze(frames, grays, { adjacentOnly: true, autoFocal: false });
   assert.equal(plain.focalScale, 1);
 });
 
@@ -321,4 +321,38 @@ test('mezcla: el desenfoque conserva una imagen uniforme y ambas mezclas dan lo 
     for (let i = 0; i < out.length; i += 4) if (out[i] !== 16) { covered++; assert.ok(Math.abs(out[i] - 120) <= 1, `valor ${out[i]}`); }
     assert.ok(covered > 50);
   }
+});
+
+test('cosido: rumbo de sensores que se queda corto un 5 % por vuelta (caso real) y focal calibrada con ese mismo error', () => {
+  const K = m.intrinsics(360, 480, 420);
+  const fov = m.fovOf(K);
+  const targets = generateTargets(fov.h, fov.v, 0.3, 0);
+  const rand = rng(5);
+  // el giroscopio mide 1/1,05 del giro real: tras cada vuelta acumula ~17° de error de rumbo
+  const k = 1.05;
+  let cum = 0, prev = targets[0].h;
+  const truth = [], sensed = [], compass = [];
+  for (const t of targets) {
+    cum += m.wrapPi(t.h - prev); prev = t.h;
+    const Rt = m.fromHeadingPitchRoll(t.h, t.p, (rand() - 0.5) * 3 * D);
+    truth.push(Rt);
+    const err = cum * (1 - 1 / k);
+    sensed.push(m.mul(m.rotZ(err), Rt));                       // rumbo relativo, con deriva
+    compass.push(m.mul(m.rotZ((rand() - 0.5) * 6 * D), Rt));   // brújula: sin deriva, ±3° de ruido
+  }
+  const grays = truth.map((R) => small(shoot(R, K), K, 2 / 3));
+  // la calibración por giro hereda el error del sensor: focal un 5 % mayor que la real
+  const frames = sensed.map((R) => ({ R, K: { ...K, f: K.f * k } }));
+  const rel = (Rs, i, j) => m.mul(m.transpose(Rs[i]), Rs[j]);
+  const maxErr = (Rs) => { let e = 0; for (let i = 1; i < truth.length; i++) e = Math.max(e, m.angleBetween(rel(truth, 0, i), rel(Rs, 0, i))); return e / D; };
+  assert.ok(maxErr(sensed) > 30, `error de partida ${maxErr(sensed)}°`);
+
+  const res = analyze(frames, grays, { adjacentOnly: true, alternatives: [compass] });
+  assert.equal(res.stats.start, 1, 'se elige la orientación corregida con la brújula');
+  close(res.focalScale * k, 1, 0.015, 'focal corregida');
+  assert.ok(maxErr(res.rotations) < 0.5, `error final ${maxErr(res.rotations)}°`);
+
+  // sin brújula no se puede recuperar: al menos no debe inventarse correcciones enormes dentro de un anillo
+  const blind = analyze(frames, grays, { adjacentOnly: true });
+  assert.equal(blind.stats.start, 0);
 });

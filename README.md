@@ -54,9 +54,11 @@ npm run e2e        # extremo a extremo en Chromium con el modo demostración (re
 
 ## Estado y limitaciones
 
-- Verificado con datos simulados y en Chromium de escritorio (incluida la ruta real de `getUserMedia`
-  y eventos `deviceorientation` emulados). **Aún no se ha probado en móviles reales**: es donde hay
-  que confirmar las convenciones de ejes de cada navegador y la precisión de los sensores.
+- Verificado con datos simulados, en Chromium de escritorio y con una captura real de un móvil
+  Android (52 fotos) reprocesada desde su ZIP. No se ha probado en iOS.
+- El rumbo de los sensores puede acumular 15–20° de error por vuelta en algunos móviles. El cosido
+  lo corrige con la brújula y las propias fotos; **sin brújula** los anillos de fotos pueden quedar
+  girados entre sí (véase [docs/calibracion.md](docs/calibracion.md)).
 - Las fotos son fotogramas del vídeo (típicamente 1920 × 1440), no fotos a resolución completa del sensor.
 - **Paralaje:** si la cámara se desplaza entre fotos (por ejemplo, al girar con el brazo extendido),
   los objetos a 1–2 m no pueden encajar con los lejanos: quedarán cortados o desplazados en las

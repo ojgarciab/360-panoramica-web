@@ -1,8 +1,8 @@
 // Núcleo del cosido: análisis (emparejar + refinar + ganancias) y mezcla equirectangular.
 // Código puro (sin DOM) para poder ejecutarlo en un Worker y probarlo en Node.
-import { mul, transpose, forward } from './math3d.js';
+import { mul, transpose, forward, angleBetween } from './math3d.js';
 import { matchPair, mapAtoB } from './match.js';
-import { refineRotations, solveGains, fitPair, estimateFocal, pixelRay } from './optimize.js';
+import { refineRotations, solveGains, fitPair, pixelRay } from './optimize.js';
 
 /** Fracción aproximada de A visible en B. */
 function overlapFraction(Fa, Fb) {
@@ -45,10 +45,18 @@ const scaleK = (K, s, w, h) => ({ w, h, f: K.f * s, cx: (K.cx + 0.5) * s - 0.5, 
 
 /**
  * Análisis previo al cosido: empareja las fotos, comprueba cada par, ajusta las orientaciones
- * y calcula las ganancias de exposición.
+ * (y la focal) y calcula las ganancias de exposición.
+ *
+ * 1. Se parte de las orientaciones de los sensores. Si se dan orientaciones alternativas
+ *    (por ejemplo, con el rumbo corregido por la brújula) se elige la que más pares consigue
+ *    casar: hay móviles cuyo rumbo relativo acumula 15–20° de error por vuelta.
+ * 2. Primer emparejado con búsqueda amplia y ajuste global. La focal se busca a la vez: con una
+ *    focal errónea los anillos de fotos no cierran, así que el propio ajuste la delata.
+ * 3. Segundo emparejado, ya con orientaciones y focal corregidas y tolerancia estricta, y ajuste final.
+ *
  * @param frames [{R, K}] orientaciones de sensor e intrínsecos a resolución completa.
  * @param grays  [{data:Float32Array, w, h}] versiones reducidas en gris.
- * @param opts {refine, gains, adjacentOnly, autoFocal}
+ * @param opts {refine, gains, adjacentOnly, autoFocal, alternatives:[[R...]], match}
  * @returns {rotations, gains, focalScale, stats}
  */
 export function analyze(frames, grays, opts = {}, onProgress = () => {}) {
@@ -57,68 +65,97 @@ export function analyze(frames, grays, opts = {}, onProgress = () => {}) {
   if (opts.refine === false && opts.gains === false) {
     return { rotations: frames.map((f) => f.R), gains: identityGains, focalScale: 1, stats: { pairs: 0, matches: 0 } };
   }
-  const pairs = planPairs(frames, { adjacentOnly: !!opts.adjacentOnly });
-  let focalScale = 1;
-  let groups = [], photo = [];
-  const rounds = opts.autoFocal ? 2 : 1;
-  const stats = { planned: pairs.length };
-  for (let round = 0; round < rounds; round++) {
-    const F = frames.map((f) => ({ R: f.R, K: { ...f.K, f: f.K.f * focalScale } }));
-    groups = []; photo = [];
-    let done = 0;
+  const DEG = Math.PI / 180;
+  const withPose = (Rs, scale) => frames.map((f, i) => ({ R: Rs[i], K: { ...f.K, f: f.K.f * scale } }));
+
+  // Empareja y verifica todos los pares previstos para unas orientaciones y una focal dadas
+  const matchRound = (Rs, scale, matchOpts, tolPx, p0, p1) => {
+    const F = withPose(Rs, scale);
+    const pairs = planPairs(F, { adjacentOnly: !!opts.adjacentOnly });
+    const matches = [], photo = [];
+    let raw = 0, verified = 0, done = 0;
     for (const [i, j] of pairs) {
       const si = grays[i].w / F[i].K.w, sj = grays[j].w / F[j].K.w;
       const M = mul(transpose(F[j].R), F[i].R);
-      const r = matchPair(grays[i], scaleK(F[i].K, si, grays[i].w, grays[i].h), grays[j], scaleK(F[j].K, sj, grays[j].w, grays[j].h), M, opts.match);
-      const pts = r.matches.map((m) => [(m[0] + 0.5) / si - 0.5, (m[1] + 0.5) / si - 0.5, (m[2] + 0.5) / sj - 0.5, (m[3] + 0.5) / sj - 0.5]);
-      if (pts.length >= 6) groups.push({ i, j, M, pts, scale: si });
+      const r = matchPair(grays[i], scaleK(F[i].K, si, grays[i].w, grays[i].h), grays[j], scaleK(F[j].K, sj, grays[j].w, grays[j].h), M, matchOpts);
+      onProgress(p0 + (p1 - p0) * ++done / pairs.length);
       if (r.samples > 50) photo.push({ i, j, meanI: r.meanA, meanJ: r.meanB, n: r.samples });
-      onProgress((round + ++done / pairs.length) / rounds);
+      if (r.matches.length < 6) continue;
+      raw += r.matches.length;
+      const pts = r.matches.map((m) => [(m[0] + 0.5) / si - 0.5, (m[1] + 0.5) / si - 0.5, (m[2] + 0.5) / sj - 0.5, (m[3] + 0.5) / sj - 0.5]);
+      // las coincidencias de un par deben ser coherentes con un único giro
+      const as = pts.map((p) => pixelRay(F[i].K, p[0], p[1])), bs = pts.map((p) => pixelRay(F[j].K, p[2], p[3]));
+      const { res } = fitPair(as, bs, M);
+      const thr = tolPx / (si * F[i].K.f);
+      const inl = pts.filter((_, k) => res[k] < thr);
+      if (inl.length < 6 || inl.length < 0.4 * pts.length) continue;
+      verified++;
+      for (const p of inl) matches.push({ i, j, a: [p[0], p[1]], b: [p[2], p[3]] });
     }
-    if (round === rounds - 1) break;
-    // Autocalibración de la focal con las propias fotos, apoyada en los giros que miden los
-    // sensores (igual que la pantalla de calibración); si cambia, se vuelve a emparejar.
-    const total = groups.reduce((s, g) => s + g.pts.length, 0);
-    if (groups.length < 8 || total < 150) break;
-    const K0 = frames[0].K, long = Math.max(K0.w, K0.h);
-    const est = estimateFocal(groups.map((g) => ({ Ra: frames[g.i].R, Rb: frames[g.j].R, pts: g.pts })), K0.w, K0.h,
-      { tau: 0.025 * long, minRel: 0.7 * K0.f / long, maxRel: 1.4 * K0.f / long });
-    if (est.inliers < 100 || est.inliers < 0.5 * est.total) break;
-    const sc = est.f / K0.f;
-    if (sc < 0.72 || sc > 1.36 || Math.abs(sc - 1) < 0.015) break;
-    stats.focalInliers = est.inliers;
-    focalScale = sc;
-  }
-  const F = frames.map((f) => ({ R: f.R, K: { ...f.K, f: f.K.f * focalScale } }));
+    return { matches, photo, raw, pairs: verified, planned: pairs.length };
+  };
 
-  // Verificación por pares: las coincidencias de un par deben ser coherentes con un único giro
-  const matches = [];
-  let raw = 0, verified = 0;
-  for (const g of groups) {
-    raw += g.pts.length;
-    const Ki = F[g.i].K, Kj = F[g.j].K;
-    const as = g.pts.map((p) => pixelRay(Ki, p[0], p[1])), bs = g.pts.map((p) => pixelRay(Kj, p[2], p[3]));
-    const { res } = fitPair(as, bs, g.M);
-    const thr = (opts.pairTolerance ?? 2) / (g.scale * Ki.f);
-    const inl = [];
-    for (let k = 0; k < res.length; k++) if (res[k] < thr) inl.push(k);
-    if (inl.length < 6 || inl.length < 0.4 * g.pts.length) continue;
-    verified++;
-    for (const k of inl) matches.push({ i: g.i, j: g.j, a: [g.pts[k][0], g.pts[k][1]], b: [g.pts[k][2], g.pts[k][3]] });
-  }
-  Object.assign(stats, { pairs: verified, matches: matches.length, rawMatches: raw, focalScale });
+  // 1. Orientación de partida: sensores o alguna alternativa, la que más pares case
+  const wide = { ...opts.match, searchCoarse: 18 };
+  const candidates = [frames.map((f) => f.R), ...(opts.alternatives || [])];
+  let start = 0, round = null;
+  candidates.forEach((Rs, c) => {
+    const r = matchRound(Rs, 1, wide, 4, 0.45 * c / candidates.length, 0.45 * (c + 1) / candidates.length);
+    if (!round || r.pairs > round.pairs * 1.1) { round = r; start = c; }
+  });
+  let rotations = candidates[start];
+  let focalScale = 1;
+  const stats = { planned: round.planned, pairs: round.pairs, matches: round.matches.length, rawMatches: round.raw, start };
 
-  let rotations = frames.map((f) => f.R);
-  if (opts.refine !== false && matches.length >= 8) {
-    const ref = refineRotations(F, matches, opts.optimize);
-    rotations = ref.rotations;
+  if (opts.refine !== false && round.matches.length >= 8) {
+    const loose = { ...opts.optimize, maxCorrection: 25 * DEG, iters: 12 };
+    const fit = (sc) => refineRotations(withPose(rotations, sc), round.matches, loose);
+    // 2. Focal: sección áurea sobre el coste del ajuste global
+    let ref = fit(1);
+    if (opts.autoFocal !== false && round.matches.length >= 200 && round.pairs >= n) {
+      // barrido (el valle es estrecho) y afinado por sección áurea; el coste es el residuo mediano
+      const cost = (sc) => fit(sc).medianAfter;
+      const lo = Math.log(0.86), hi = Math.log(1.16), steps = 15;
+      let bk = 0, bc = Infinity;
+      for (let k = 0; k <= steps; k++) {
+        const v = cost(Math.exp(lo + (hi - lo) * k / steps));
+        if (v < bc) { bc = v; bk = k; }
+      }
+      let a = lo + (hi - lo) * Math.max(0, bk - 1) / steps, b = lo + (hi - lo) * Math.min(steps, bk + 1) / steps;
+      const phi = (Math.sqrt(5) - 1) / 2;
+      let c = b - phi * (b - a), d = a + phi * (b - a);
+      let fc = cost(Math.exp(c)), fd = cost(Math.exp(d));
+      for (let it = 0; it < 7; it++) {
+        if (fc < fd) { b = d; d = c; fd = fc; c = b - phi * (b - a); fc = cost(Math.exp(c)); }
+        else { a = c; c = d; fc = fd; d = a + phi * (b - a); fd = cost(Math.exp(d)); }
+      }
+      const sc = Math.exp((a + b) / 2);
+      const cand = fit(sc);
+      // sólo se acepta si mejora con claridad (sin lazos cerrados la focal queda mal determinada)
+      if (Math.abs(sc - 1) > 0.01 && cand.medianAfter < 0.93 * ref.medianAfter) { focalScale = sc; ref = cand; }
+    }
+    const before = ref;
+    let Rs = ref.rotations;
+    onProgress(0.55);
+    // 3. Segundo emparejado con todo corregido y ajuste final
+    const tight = matchRound(Rs, focalScale, opts.match, 2, 0.55, 1);
+    let final = before;
+    if (tight.matches.length >= 0.5 * round.matches.length) {
+      final = refineRotations(withPose(Rs, focalScale), tight.matches, { ...opts.optimize, maxCorrection: 6 * DEG });
+      Rs = final.rotations;
+      round = tight;
+    }
     Object.assign(stats, {
-      rmsBeforeDeg: ref.rmsBefore * 180 / Math.PI, rmsAfterDeg: ref.rmsAfter * 180 / Math.PI,
-      medianBeforeDeg: ref.medianBefore * 180 / Math.PI, medianAfterDeg: ref.medianAfter * 180 / Math.PI,
-      maxCorrectionDeg: Math.max(...ref.corrections) * 180 / Math.PI, reverted: ref.reverted,
+      pairs: round.pairs, matches: round.matches.length, rawMatches: round.raw, focalScale,
+      medianBeforeDeg: before.medianBefore / DEG, medianAfterDeg: final.medianAfter / DEG,
+      rmsBeforeDeg: before.rmsBefore / DEG, rmsAfterDeg: final.rmsAfter / DEG,
+      maxCorrectionDeg: Math.max(...Rs.map((R, i) => angleBetween(R, frames[i].R))) / DEG,
+      reverted: (before.reverted || 0) + (final.reverted || 0),
     });
+    rotations = Rs;
   }
-  const gains = opts.gains === false ? identityGains : solveGains(photo, n);
+  stats.focalScale = focalScale;
+  const gains = opts.gains === false ? identityGains : solveGains(round.photo, n);
   return { rotations, gains, focalScale, stats };
 }
 

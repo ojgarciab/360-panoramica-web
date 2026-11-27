@@ -123,24 +123,37 @@ real dependerá del giroscopio de cada móvil y de la escena.
 
 ## 4. Relación con el cosido
 
-Aunque la focal esté bien calibrada, el rumbo de los sensores deriva. Al coser (`src/stitch-core.js`):
+Al coser (`src/stitch-core.js`) se corrigen tanto las orientaciones como la focal:
 
-- se emparejan las fotos que los sensores dicen que se solapan (opcionalmente sólo las contiguas),
-  con una búsqueda en dos escalas limitada a la zona de solape;
-- cada par se verifica: sus coincidencias deben ser coherentes con un único giro, y las que no lo
-  son se descartan;
-- si la cámara **no está calibrada**, la focal se estima con las propias fotos de la captura usando
-  el mismo método del apartado 3.1 (giros de los sensores) y se vuelve a emparejar;
-- un *bundle adjustment* sólo de rotaciones (Gauss–Newton con pesos de Huber) corrige cada
-  orientación, con un término de confianza en el sensor fuerte en inclinación (la gravedad se mide
-  bien) y débil en rumbo (donde deriva el giroscopio);
-- se compensa la exposición con una ganancia por foto y se mezcla en dos bandas (Brown y Lowe).
+- **Rumbo de partida.** Se prueban dos orientaciones iniciales, la de los sensores tal cual y la
+  misma con el rumbo corregido por la brújula (`compassCorrected` en `src/pipeline.js`), y se elige
+  la que más pares de fotos consigue casar.
+- **Emparejado.** Sólo entre fotos que se solapan (opcionalmente sólo las contiguas), con búsqueda
+  en dos escalas dentro de la zona de solape. Cada par se verifica: sus coincidencias deben ser
+  coherentes con un único giro.
+- **Ajuste global.** *Bundle adjustment* de rotaciones (Gauss–Newton con pesos de Huber), con un
+  término de confianza en el sensor fuerte en inclinación y débil en rumbo.
+- **Focal.** Se busca a la vez que el ajuste global: con una focal errónea los anillos de fotos no
+  cierran, así que se elige la que minimiza el residuo. Sólo se acepta si mejora con claridad.
+- Segundo emparejado con todo corregido, ajuste final, ganancias de exposición y mezcla en dos bandas.
 
-Se probó también la autocalibración sin sensores (apartado 2.2) dentro del cosido y se descartó: con
-una captura real hecha a pulso estimaba una focal un 13 % menor que la correcta, porque el
-desplazamiento de la cámara (paralaje) con suelo cercano se confunde con un cambio de escala. La
-estimación apoyada en los sensores recuperó sobre esas mismas fotos la focal calibrada con un
-error inferior al 2 % partiendo de valores un 10 % erróneos.
+### Lección de la primera captura real
+
+En un móvil Android (Chrome) el rumbo del evento `deviceorientation` relativo **se quedaba corto
+alrededor de un 4–6 %**: tras cada vuelta completa acumulaba 15–20° de error (medido con las propias
+fotos al cerrar cada anillo: 14,7°, 19,5° y 15,1°). Consecuencias:
+
+- cada anillo de fotos quedaba bien cosido por dentro pero girado respecto a los demás; de 82 pares
+  entre anillos distintos sólo 2 encontraban coincidencias;
+- la calibración «giro con sensores» (apartado 3.1) hereda ese error de escala: la focal calibrada
+  salía un 4–5 % mayor que la real. **La calibración por giro sólo es tan buena como el giroscopio.**
+
+La brújula (evento `deviceorientationabsolute`) es más ruidosa pero no deriva. Combinando ambas —el
+detalle del rumbo relativo y la tendencia de la brújula— los pares verificados entre anillos pasaron
+de 2 a más de 50, y el ajuste global corrigió la focal un −4,7 %.
+
+Pendiente: sin brújula (o con una brújula muy perturbada) este error no se corrige; haría falta
+detectar los cierres de anillo sólo con imágenes, buscando con desfases de rumbo amplios.
 
 ## 5. Mejoras futuras
 
